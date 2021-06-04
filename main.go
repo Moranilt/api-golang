@@ -107,6 +107,7 @@ func mainHandler(fn func(http.ResponseWriter, *http.Request, *sqlx.DB)) http.Han
 			log.Fatalln(err)
 			return
 		}
+		db.SetMaxOpenConns(100)
 		fn(w, r, db)
 	}
 }
