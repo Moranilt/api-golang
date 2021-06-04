@@ -16,6 +16,20 @@ type Request struct {
 	Name string `json:"name"`
 }
 
+type Context struct {
+	response http.ResponseWriter
+	request  *http.Request
+}
+
+type Response struct {
+	Error bool `json:"error"`
+	User  User `json:"user"`
+}
+
+type EmptyResponse struct {
+	Error bool        `json:"error"`
+	User  interface{} `json:"user"`
+}
 type User struct {
 	Id        int64  `db:"id"`
 	Name      string `db:"name"`
@@ -32,9 +46,31 @@ func checkMethod(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+func responseWriter(ctxt *Context, user []User) {
+	ctxt.response.Header().Set("content-type", "application/json")
+	if len(user) == 0 {
+		emptyResponse := EmptyResponse{Error: true, User: ""}
+		resp, err := json.Marshal(emptyResponse)
+		if err != nil {
+			http.Error(ctxt.response, err.Error(), http.StatusInternalServerError)
+		}
+		ctxt.response.Write(resp)
+		return
+	}
+	response := Response{Error: false, User: user[0]}
+	output, err := json.Marshal(response)
+	if err != nil {
+		http.Error(ctxt.response, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ctxt.response.Write(output)
+}
+
 func queryRunner(w http.ResponseWriter, r *http.Request, db *sqlx.DB) {
 	var requestBody Request
 	var user []User
+	context := &Context{response: w, request: r}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -50,16 +86,13 @@ func queryRunner(w http.ResponseWriter, r *http.Request, db *sqlx.DB) {
 	}
 
 	query := fmt.Sprintf("SELECT * FROM users WHERE name='%v'", requestBody.Name)
-	db.Select(&user, query)
-
-	output, err := json.Marshal(user[0])
+	err = db.Select(&user, query)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("content-type", "application/json")
-	w.Write(output)
+	responseWriter(context, user)
 }
 
 func mainHandler(fn func(http.ResponseWriter, *http.Request, *sqlx.DB)) http.HandlerFunc {
